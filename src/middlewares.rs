@@ -23,7 +23,8 @@ impl JwtMiddleware {
 
 impl<S> actix_web::dev::Transform<S, ServiceRequest> for JwtMiddleware
 where
-    S: Service<ServiceRequest, Response = actix_web::dev::ServiceResponse, Error = ActixError>,
+    S: Service<ServiceRequest, Response = actix_web::dev::ServiceResponse, Error = ActixError>
+        + 'static,
     S::Future: 'static,
 {
     type Response = actix_web::dev::ServiceResponse;
@@ -34,36 +35,35 @@ where
 
     fn new_transform(&self, service: S) -> Self::Future {
         ready(Ok(JwtMiddlewareService {
-            service,
+            service: Rc::new(service),
             config: Rc::clone(&self.config),
         }))
     }
 }
 
 pub struct JwtMiddlewareService<S> {
-    service: S,
+    service: Rc<S>,
     config: Rc<JwtConfig>,
 }
 
 impl<S> Service<ServiceRequest> for JwtMiddlewareService<S>
 where
-    S: Service<ServiceRequest, Response = actix_web::dev::ServiceResponse, Error = ActixError>,
+    S: Service<ServiceRequest, Response = actix_web::dev::ServiceResponse, Error = ActixError>
+        + 'static,
     S::Future: 'static,
 {
     type Response = actix_web::dev::ServiceResponse;
     type Error = ActixError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
-    // type Future = S::Future;
 
     actix_web::dev::forward_ready!(service);
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
-        log::info!("In the middleware");
+        let service = Rc::clone(&self.service);
 
         let bearer = BearerAuth::extract(req.request());
 
         let config = Rc::clone(&self.config);
-        let srv = self.service.call(req);
 
         Box::pin(async move {
             let token = match bearer.await {
@@ -84,11 +84,11 @@ where
                     )));
                 }
             };
-
-            let req = srv.await?;
             req.request().extensions_mut().insert(claims);
-            log::info!("Exiting middleware");
-            Ok(req)
+
+            let res = service.call(req).await?;
+
+            Ok(res)
         })
     }
 }

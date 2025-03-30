@@ -14,7 +14,6 @@ pub async fn login_handler(
     input: web::Json<LoginInput>,
     config: web::Data<JwtConfig>,
 ) -> impl Responder {
-    
     match config.create_jwt(
         input.into_inner().user_id,
         ["user".to_owned(), "admin".to_owned()].into(),
@@ -29,10 +28,14 @@ pub async fn login_handler(
 
 pub async fn protected_handler(req: HttpRequest) -> impl Responder {
     match req.extensions().get::<Claims>() {
-        Some(claims) => HttpResponse::Ok().body(format!(
-            "Hello {}! Your roles are: {:?}",
-            claims.user_id, claims.roles
-        )),
+        Some(claims) => {
+            let res = format!(
+                "Hello {}! Your roles are: {:?}",
+                claims.user_id, claims.roles
+            );
+            log::info!("{}", &res);
+            HttpResponse::Ok().body(res)
+        }
         None => HttpResponse::InternalServerError()
             .body("Claims not found - middleware may be misconfigured"),
     }
